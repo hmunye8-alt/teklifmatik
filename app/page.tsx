@@ -461,7 +461,7 @@ const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
                 <input
                   className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
-                  placeholder="Hizmet türü: Logo tasarımı, web sitesi..."
+                  placeholder="Hizmet türü"
                   value={service}
                   onChange={(e) => setService(e.target.value)}
                 />
