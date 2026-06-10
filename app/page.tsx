@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 type OfferItem = {
   title: string;
@@ -9,6 +10,8 @@ type OfferItem = {
 };
 
 type SavedOffer = {
+  id?: string;
+  user_id?: string;
   offerNo: string;
   today: string;
   companyLogo: string;
@@ -27,26 +30,30 @@ type SavedOffer = {
 };
 
 export default function Home() {
+  const [user, setUser] = useState<any>(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [ownerName, setOwnerName] = useState("");
+
   const [companyLogo, setCompanyLogo] = useState("");
-  const [service, setService] = useState("");
-  const [clientName, setClientName] = useState("");
-  const [projectDetail, setProjectDetail] = useState("");
-  const [items, setItems] = useState<OfferItem[]>([
-    { title: "", quantity: 1, unitPrice: 0 },
-  ]);
-
-  const [deliveryTime, setDeliveryTime] = useState("");
-  const [validity, setValidity] = useState("7 gün");
-
   const [companyName, setCompanyName] = useState("");
   const [companyPerson, setCompanyPerson] = useState("");
   const [companyPhone, setCompanyPhone] = useState("");
   const [companyEmail, setCompanyEmail] = useState("");
   const [companyWebsite, setCompanyWebsite] = useState("");
 
+  const [service, setService] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [projectDetail, setProjectDetail] = useState("");
+  const [items, setItems] = useState<OfferItem[]>([
+    { title: "", quantity: 1, unitPrice: 0 },
+  ]);
+  const [deliveryTime, setDeliveryTime] = useState("");
+  const [validity, setValidity] = useState("7 gün");
+
   const [savedOffers, setSavedOffers] = useState<SavedOffer[]>([]);
   const [offerNo, setOfferNo] = useState("");
-const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   const today = new Date().toLocaleDateString("tr-TR");
 
@@ -55,68 +62,159 @@ const [editingIndex, setEditingIndex] = useState<number | null>(null);
     0
   );
 
-  useEffect(() => {
-    const offers = JSON.parse(localStorage.getItem("offers") || "[]");
-    setSavedOffers(offers);
-
-    const nextNumber = offers.length + 1;
-    const formattedNumber = String(nextNumber).padStart(4, "0");
-
-    setOfferNo(`TKL-${new Date().getFullYear()}-${formattedNumber}`);
-  }, []);
-
-  const saveOffer = () => {
-  const offerData: SavedOffer = {
-    offerNo,
-    today,
-    companyLogo,
-    companyName,
-    companyPerson,
-    companyPhone,
-    companyEmail,
-    companyWebsite,
-    clientName,
-    service,
-    projectDetail,
-    items,
-    deliveryTime,
-    validity,
-    totalPrice,
+  const generateOfferNo = (count: number) => {
+    const formattedNumber = String(count + 1).padStart(4, "0");
+    return `TKL-${new Date().getFullYear()}-${formattedNumber}`;
   };
 
-  const offers = JSON.parse(localStorage.getItem("offers") || "[]");
+  useEffect(() => {
+    const getSession = async () => {
+      const { data } = await supabase.auth.getSession();
 
-  if (editingIndex !== null) {
-  const replaceOld = window.confirm(
-    "Eski teklifin üzerine yazılsın mı?\n\nTamam = Güncelle\nİptal = Yeni teklif olarak kaydet"
-  );
+      if (data.session?.user) {
+        setUser(data.session.user);
+        await loadProfile(data.session.user.id);
+        await loadOffersFromSupabase(data.session.user.id);
+      }
+    };
 
-  if (replaceOld) {
-    const updatedOffers = [...offers];
-    updatedOffers[editingIndex] = offerData;
+    getSession();
 
-    localStorage.setItem("offers", JSON.stringify(updatedOffers));
-    setSavedOffers(updatedOffers);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+        await loadProfile(session.user.id);
+        await loadOffersFromSupabase(session.user.id);
+      } else {
+        setUser(null);
+        setSavedOffers([]);
+      }
+    });
 
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const loadProfile = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    if (error || !data) return;
+
+    setOwnerName(data.owner_name || "");
+    setCompanyLogo(data.company_logo || "");
+    setCompanyName(data.company_name || "");
+    setCompanyPerson(data.company_person || "");
+    setCompanyPhone(data.company_phone || "");
+    setCompanyEmail(data.company_email || "");
+    setCompanyWebsite(data.company_website || "");
+  };
+
+  const loadOffersFromSupabase = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("offers")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    const formattedOffers: SavedOffer[] = (data || []).map((offer) => ({
+      id: offer.id,
+      user_id: offer.user_id,
+      offerNo: offer.offer_no,
+      today: offer.today,
+      companyLogo: offer.company_logo,
+      companyName: offer.company_name,
+      companyPerson: offer.company_person,
+      companyPhone: offer.company_phone,
+      companyEmail: offer.company_email,
+      companyWebsite: offer.company_website,
+      clientName: offer.client_name,
+      service: offer.service,
+      projectDetail: offer.project_detail,
+      items: offer.items || [],
+      deliveryTime: offer.delivery_time,
+      validity: offer.validity,
+      totalPrice: Number(offer.total_price || 0),
+    }));
+
+    setSavedOffers(formattedOffers);
+    setOfferNo(generateOfferNo(formattedOffers.length));
+  };
+
+  const saveOffer = async () => {
+    if (!user) {
+      alert("Lütfen giriş yapın.");
+      return;
+    }
+
+    const offerPayload = {
+      user_id: user.id,
+      offer_no: offerNo,
+      today,
+      company_logo: companyLogo,
+      company_name: companyName,
+      company_person: companyPerson,
+      company_phone: companyPhone,
+      company_email: companyEmail,
+      company_website: companyWebsite,
+      client_name: clientName,
+      service,
+      project_detail: projectDetail,
+      items,
+      delivery_time: deliveryTime,
+      validity,
+      total_price: totalPrice,
+    };
+
+    if (editingIndex !== null) {
+      const currentOffer = savedOffers[editingIndex];
+
+      const replaceOld = window.confirm(
+        "Eski teklifin üzerine yazılsın mı?\n\nTamam = Güncelle\nİptal = Yeni teklif olarak kaydet"
+      );
+
+      if (replaceOld && currentOffer?.id) {
+        const { error } = await supabase
+          .from("offers")
+          .update(offerPayload)
+          .eq("id", currentOffer.id);
+
+        if (error) {
+          alert(error.message);
+          return;
+        }
+
+        await loadOffersFromSupabase(user.id);
+        setEditingIndex(null);
+
+        alert("Teklif güncellendi.");
+        return;
+      }
+    }
+
+    const { error } = await supabase.from("offers").insert(offerPayload);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await loadOffersFromSupabase(user.id);
     setEditingIndex(null);
 
-    alert("Teklif güncellendi.");
-    return;
-  }
-}
-
-  const updatedOffers = [...offers, offerData];
-
-  localStorage.setItem("offers", JSON.stringify(updatedOffers));
-  setSavedOffers(updatedOffers);
-
-  const nextNumber = updatedOffers.length + 1;
-  const formattedNumber = String(nextNumber).padStart(4, "0");
-
-  setOfferNo(`TKL-${new Date().getFullYear()}-${formattedNumber}`);
-
-  alert("Teklif kaydedildi.");
-};
+    alert("Teklif kaydedildi.");
+  };
 
   const loadOffer = (offer: SavedOffer, index: number) => {
     setCompanyLogo(offer.companyLogo || "");
@@ -135,10 +233,22 @@ const [editingIndex, setEditingIndex] = useState<number | null>(null);
     setEditingIndex(index);
   };
 
-  const deleteOffer = (indexToDelete: number) => {
-    const updatedOffers = savedOffers.filter((_, index) => index !== indexToDelete);
-    localStorage.setItem("offers", JSON.stringify(updatedOffers));
-    setSavedOffers(updatedOffers);
+  const deleteOffer = async (indexToDelete: number) => {
+    const offer = savedOffers[indexToDelete];
+
+    if (!offer?.id || !user) return;
+
+    const confirmDelete = window.confirm("Bu teklif silinsin mi?");
+    if (!confirmDelete) return;
+
+    const { error } = await supabase.from("offers").delete().eq("id", offer.id);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await loadOffersFromSupabase(user.id);
   };
 
   const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -162,11 +272,75 @@ const [editingIndex, setEditingIndex] = useState<number | null>(null);
     setDeliveryTime("");
     setValidity("7 gün");
     setEditingIndex(null);
+    setOfferNo(generateOfferNo(savedOffers.length));
+  };
 
-    const nextNumber = savedOffers.length + 1;
-    const formattedNumber = String(nextNumber).padStart(4, "0");
+  const signUp = async () => {
+    const { data, error } = await supabase.auth.signUp({
+      email: authEmail,
+      password: authPassword,
+    });
 
-    setOfferNo(`TKL-${new Date().getFullYear()}-${formattedNumber}`);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    if (data.user) {
+      await supabase.from("profiles").insert({
+        id: data.user.id,
+        owner_name: ownerName,
+        company_name: companyName,
+        company_person: companyPerson,
+        company_phone: companyPhone,
+        company_email: companyEmail,
+        company_website: companyWebsite,
+        company_logo: companyLogo,
+      });
+    }
+
+    alert("Kayıt başarılı. E-postanı doğrulaman gerekebilir.");
+  };
+
+  const signIn = async () => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: authEmail,
+      password: authPassword,
+    });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setUser(data.user);
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+  };
+
+  const saveCompanyProfile = async () => {
+    if (!user) return;
+
+    const { error } = await supabase.from("profiles").upsert({
+      id: user.id,
+      owner_name: ownerName,
+      company_name: companyName,
+      company_person: companyPerson,
+      company_phone: companyPhone,
+      company_email: companyEmail,
+      company_website: companyWebsite,
+      company_logo: companyLogo,
+    });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    alert("Firma bilgileri kaydedildi.");
   };
 
   const escapeHtml = (value: string) => {
@@ -199,9 +373,7 @@ const [editingIndex, setEditingIndex] = useState<number | null>(null);
         <head>
           <title>${offerNo}</title>
           <style>
-            * {
-              box-sizing: border-box;
-            }
+            * { box-sizing: border-box; }
 
             @page {
               size: A4;
@@ -248,9 +420,7 @@ const [editingIndex, setEditingIndex] = useState<number | null>(null);
               margin: 0;
             }
 
-            .muted {
-              color: #52525b;
-            }
+            .muted { color: #52525b; }
 
             .meta {
               min-width: 190px;
@@ -272,9 +442,7 @@ const [editingIndex, setEditingIndex] = useState<number | null>(null);
               text-align: left;
             }
 
-            th {
-              background: #f4f4f5;
-            }
+            th { background: #f4f4f5; }
 
             .total {
               margin-top: 14px;
@@ -346,9 +514,7 @@ const [editingIndex, setEditingIndex] = useState<number | null>(null);
                 <th>Tutar</th>
               </tr>
             </thead>
-            <tbody>
-              ${itemsHtml}
-            </tbody>
+            <tbody>${itemsHtml}</tbody>
           </table>
 
           <div class="total">
@@ -378,14 +544,83 @@ const [editingIndex, setEditingIndex] = useState<number | null>(null);
     printWindow.document.close();
   };
 
+  if (!user) {
+    return (
+      <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
+        <div className="mx-auto max-w-md rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
+          <h1 className="mb-2 text-3xl font-bold">Teklifmatik</h1>
+
+          <p className="mb-6 text-zinc-400">
+            Devam etmek için giriş yap veya kayıt ol.
+          </p>
+
+          <div className="space-y-4">
+            <input
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
+              placeholder="Firma sahibi adı"
+              value={ownerName}
+              onChange={(e) => setOwnerName(e.target.value)}
+            />
+
+            <input
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
+              placeholder="E-posta"
+              value={authEmail}
+              onChange={(e) => setAuthEmail(e.target.value)}
+            />
+
+            <input
+              type="password"
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
+              placeholder="Şifre"
+              value={authPassword}
+              onChange={(e) => setAuthPassword(e.target.value)}
+            />
+
+            <button
+              onClick={signIn}
+              className="w-full rounded-xl bg-white px-5 py-3 font-semibold text-zinc-950 hover:bg-zinc-200"
+            >
+              Giriş Yap
+            </button>
+
+            <button
+              onClick={signUp}
+              className="w-full rounded-xl border border-zinc-700 px-5 py-3 font-semibold text-white hover:bg-zinc-800"
+            >
+              Kayıt Ol
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
       <div className="mx-auto max-w-6xl">
-        <header className="mb-10">
-          <h1 className="text-4xl font-bold tracking-tight">Teklifmatik</h1>
-          <p className="mt-3 text-zinc-400">
-            30 saniyede profesyonel fiyat teklifi oluştur.
-          </p>
+        <header className="mb-10 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-4xl font-bold tracking-tight">Teklifmatik</h1>
+            <p className="mt-3 text-zinc-400">
+              30 saniyede profesyonel fiyat teklifi oluştur.
+            </p>
+          </div>
+
+          <div className="text-right">
+            <p className="text-sm text-zinc-400">Hoş geldiniz,</p>
+
+            <p className="font-semibold">
+              {ownerName || companyPerson || user.email}
+            </p>
+
+            <button
+              onClick={signOut}
+              className="mt-3 rounded-xl border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+            >
+              Çıkış Yap
+            </button>
+          </div>
         </header>
 
         <div className="grid gap-6 lg:grid-cols-2">
@@ -450,6 +685,14 @@ const [editingIndex, setEditingIndex] = useState<number | null>(null);
                     value={companyWebsite}
                     onChange={(e) => setCompanyWebsite(e.target.value)}
                   />
+
+                  <button
+                    type="button"
+                    onClick={saveCompanyProfile}
+                    className="w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
+                  >
+                    Firma Bilgilerini Kaydet
+                  </button>
                 </div>
 
                 <input
@@ -535,11 +778,7 @@ const [editingIndex, setEditingIndex] = useState<number | null>(null);
                     onClick={() =>
                       setItems([
                         ...items,
-                        {
-                          title: "",
-                          quantity: 1,
-                          unitPrice: 0,
-                        },
+                        { title: "", quantity: 1, unitPrice: 0 },
                       ])
                     }
                   >
@@ -574,7 +813,7 @@ const [editingIndex, setEditingIndex] = useState<number | null>(null);
                 <div className="space-y-3">
                   {savedOffers.map((offer, index) => (
                     <div
-                      key={index}
+                      key={offer.id || index}
                       className="rounded-xl border border-zinc-800 bg-zinc-950 p-4"
                     >
                       <div className="flex items-center justify-between gap-4">
