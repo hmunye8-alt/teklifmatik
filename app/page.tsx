@@ -1015,6 +1015,34 @@ export default function Home() {
           </div>
         </div>
       </div>
+      <footer className="mt-16 border-t border-zinc-800 py-8 text-center text-sm text-zinc-500">
+  <div className="mb-3">
+    © {new Date().getFullYear()} Teklifmatik
+  </div>
+
+  <div className="flex justify-center gap-6">
+    <a
+      href="/privacy"
+      className="hover:text-white transition"
+    >
+      Gizlilik Politikası
+    </a>
+
+    <a
+      href="/terms"
+      className="hover:text-white transition"
+    >
+      Kullanım Şartları
+    </a>
+
+    <a
+      href="/contact"
+      className="hover:text-white transition"
+    >
+      İletişim
+    </a>
+  </div>
+</footer>
     </main>
   );
 }
